@@ -1,5 +1,4 @@
 import { QURAN_SAMPLE } from '../data/quran.js';
-const pad=n=>String(n).padStart(3,'0');
 export class QuranService {
   getSurah(id=78){ return id===78 ? QURAN_SAMPLE.surah : null; }
   getAyah(key){ return QURAN_SAMPLE.ayahs.find(a=>a.key===key)||null; }
