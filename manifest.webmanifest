@@ -1,0 +1,10 @@
+{
+  "name": "Quran Ustadh AI",
+  "short_name": "Quran Ustadh",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f8f5",
+  "theme_color": "#0f5f4f",
+  "description": "A personal AI Quran teacher that remembers each student's progress.",
+  "icons": []
+}
