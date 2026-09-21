@@ -2,6 +2,8 @@ import { storageService } from './services/storage-service.js';
 import { quranService } from './services/quran-service.js';
 import { learningEngine } from './services/learning-engine.js';
 import { mockRecitationService } from './services/mock-recitation-service.js';
+import { recorderService } from './services/recorder-service.js';
+import { supabaseService } from './services/supabase-service.js';
 
 let state = storageService.load();
 let route = state.onboarded ? 'home' : 'login';
@@ -9,6 +11,7 @@ let selectedWord = null;
 let classStage = 'ready';
 let evalResult = null;
 let hidden = new Set();
+let micError = '';
 const app = document.querySelector('#app');
 
 const icons={home:'⌂',quran:'☾',learn:'◉',progress:'↗',profile:'◎'};
@@ -40,7 +43,7 @@ function quran(){
 function classScreen(){
   const ctx=learningEngine.buildSessionContext(state);
   const ayahs=quranService.getPage(582);
-  return shell(`${top('Live Quran Class',true)}<div class="page"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span class="pill">Lesson 1 of 3</span><button class="back" data-route="home">End Class</button></div><div class="teacher-box"><div class="avatar">ا</div><div><strong>Ustadh</strong><p class="urdu" id="teacherMsg">السلام علیکم ${ctx.student_name}۔ آج پہلے کل کا سبق سنیں گے۔ بسم اللہ پڑھ کر شروع کریں۔</p></div></div><div class="quran-shell" style="margin-top:12px;min-height:330px">${ayahs.slice(0,4).map(a=>`<div class="ayah" data-verse="${a.key}">${a.words.map(w=>{const classes=['word'];if(evalResult?.mistakes.some(m=>m.wordId===w.id&&!m.corrected))classes.push('error');if(evalResult?.mistakes.some(m=>m.wordId===w.id&&m.corrected))classes.push('corrected');if(hidden.has(w.id))classes.push('hideword');return `<span class="${classes.join(' ')}" data-word="${w.id}" data-ayah="${a.key}">${w.text}</span>`;}).join(' ')} <span class="ayah-num">﴿${a.number}﴾</span></div>`).join('')}</div><div class="reader-tools"><button class="secondary" id="classAudio">▶ Reference</button><button class="secondary" id="hideWords">◌ Hide words</button></div><button class="mic ${classStage==='recording'?'recording':''}" id="micBtn">${classStage==='recording'?'■':'🎙'}</button><div class="status">${classStage==='recording'?'Listening…':'Tap microphone to begin'}</div>${evalResult?mistakePanel():''}<div class="spacer"></div><button class="primary" style="width:100%" id="completeClass" ${evalResult?'':'disabled'}>Complete Lesson</button><p class="source-note center">Recitation evaluation is SIMULATED in Phase 1. No real speech mistake claim is being made.</p></div>`);
+  return shell(`${top('Live Quran Class',true)}<div class="page"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span class="pill">Lesson 1 of 3</span><button class="back" data-route="home">End Class</button></div><div class="teacher-box"><div class="avatar">ا</div><div><strong>Ustadh</strong><p class="urdu" id="teacherMsg">السلام علیکم ${ctx.student_name}۔ آج پہلے کل کا سبق سنیں گے۔ بسم اللہ پڑھ کر شروع کریں۔</p></div></div><div class="quran-shell" style="margin-top:12px;min-height:330px">${ayahs.slice(0,4).map(a=>`<div class="ayah" data-verse="${a.key}">${a.words.map(w=>{const classes=['word'];if(evalResult?.mistakes.some(m=>m.wordId===w.id&&!m.corrected))classes.push('error');if(evalResult?.mistakes.some(m=>m.wordId===w.id&&m.corrected))classes.push('corrected');if(hidden.has(w.id))classes.push('hideword');return `<span class="${classes.join(' ')}" data-word="${w.id}" data-ayah="${a.key}">${w.text}</span>`;}).join(' ')} <span class="ayah-num">﴿${a.number}﴾</span></div>`).join('')}</div><div class="reader-tools"><button class="secondary" id="classAudio">▶ Reference</button><button class="secondary" id="hideWords">◌ Hide words</button></div><button class="mic ${classStage==='recording'?'recording':''}" id="micBtn">${classStage==='recording'?'■':'🎙'}</button><div class="status">${classStage==='recording'?'Listening…':'Tap microphone to begin'}</div>${recorderService.getPlaybackUrl()?`<div class="reader-tools"><button class="ghost" id="playRecording">▶ My recitation</button></div>`:''}${micError?`<div class="card mistake-card"><strong>Microphone unavailable</strong><p class="small">${micError}</p></div>`:''}${evalResult?mistakePanel():''}<div class="spacer"></div><button class="primary" style="width:100%" id="completeClass" ${evalResult?'':'disabled'}>Complete Lesson</button><p class="source-note center">Recitation evaluation is SIMULATED in Phase 1. No real speech mistake claim is being made.</p></div>`);
 }
 function mistakePanel(){
   const remaining=evalResult.mistakes.filter(m=>!m.corrected);
@@ -85,11 +88,33 @@ function bind(){
   document.querySelector('#playAyah')?.addEventListener('click',()=>play(quranService.getAyahAudio(selectedWord?selectedWord.split(':').slice(0,2).join(':'):'78:11')));
   document.querySelector('#playWord')?.addEventListener('click',()=>{if(!selectedWord)return alert('Tap a Quran word first.');play(quranService.getWordAudio(selectedWord));});
   document.querySelector('#classAudio')?.addEventListener('click',()=>play(quranService.getAyahAudio('78:11')));
-  document.querySelector('#micBtn')?.addEventListener('click',()=>{
+  document.querySelector('#micBtn')?.addEventListener('click',async()=>{
+    micError='';
     if(classStage==='recording'){
       classStage='checking';render();
-      setTimeout(()=>{evalResult=mockRecitationService.evaluate();classStage='result';render();},650);
-    } else { classStage='recording';render(); }
+      try{
+        await recorderService.stop();
+        evalResult=mockRecitationService.evaluate();
+        classStage='result';
+      }catch(err){
+        micError=err?.message||'Could not finish recording.';
+        classStage='ready';
+      }
+      render();
+    } else {
+      try{
+        await recorderService.start();
+        classStage='recording';
+      }catch(err){
+        micError=err?.message||'Please allow microphone access in your browser.';
+        classStage='ready';
+      }
+      render();
+    }
+  });
+  document.querySelector('#playRecording')?.addEventListener('click',()=>{
+    const url=recorderService.getPlaybackUrl();
+    if(url) play(url);
   });
   document.querySelector('#hideWords')?.addEventListener('click',()=>{
     const candidates=quranService.getAyah('78:13').words;
@@ -103,8 +128,12 @@ function bind(){
     const m=evalResult.mistakes.find(x=>!x.corrected);m.corrected=true;render();
   });
   document.querySelector('#completeClass')?.addEventListener('click',()=>{
-    state=learningEngine.completeSession(state);storageService.save(state);route='complete';render();
+    state=learningEngine.completeSession(state);storageService.save(state);
+    const sid=state.student.remoteId;
+    supabaseService.saveSessionSummary(sid,state.lastSession).catch(()=>{});
+    route='complete';render();
   });
 }
+supabaseService.init().catch(()=>{});
 render();
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
