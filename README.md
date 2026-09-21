@@ -24,3 +24,16 @@ The sample includes verified Quran Arabic for Surah An-Naba 78:11–15 and recor
 
 ## Not yet real
 Speech recognition, Quran audio alignment, microphone recording upload, AI TTS, parent dashboard, teacher dashboard and Supabase auth are intentionally not connected in this phase-1 prototype.
+
+
+## Full Quran provider (IndoPak 15-line)
+The reader is wired to Quran Foundation Content APIs through the server-only `/api/quran` Vercel function using Mushaf ID 6 (IndoPak 15-line, 610 pages).
+
+Required Vercel environment variables:
+- `QF_CLIENT_ID`
+- `QF_CLIENT_SECRET`
+- `QF_ENV=production` for the full Quran dataset
+
+Do not expose `QF_CLIENT_SECRET` in browser code. The API route obtains and caches a Client Credentials token server-side.
+
+Until production Quran Foundation credentials are configured, the verified local An-Naba sample remains as a safe fallback.
