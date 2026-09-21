@@ -4,6 +4,7 @@ import { learningEngine } from './services/learning-engine.js';
 import { mockRecitationService } from './services/mock-recitation-service.js';
 import { recorderService } from './services/recorder-service.js';
 import { supabaseService } from './services/supabase-service.js';
+import { fullQuranService } from './services/full-quran-service.js';
 
 let state = storageService.load();
 let route = state.onboarded ? 'home' : 'login';
@@ -12,6 +13,7 @@ let classStage = 'ready';
 let evalResult = null;
 let hidden = new Set();
 let micError = '';
+let fullReader = { page: 1, loading: false, error: '', data: null, provider: 'full' };
 const app = document.querySelector('#app');
 
 const icons={home:'⌂',quran:'☾',learn:'◉',progress:'↗',profile:'◎'};
@@ -37,8 +39,18 @@ function quranWord(w,key){
   const cls=['word']; if(selectedWord===w.id)cls.push('selected');
   return `<span class="${cls.join(' ')}" data-word="${w.id}" data-ayah="${key}">${w.text}</span>`;
 }
+function fullReaderMarkup(){
+  if(fullReader.loading) return `<div class="quran-shell reader-loading"><div class="mushaf-header">IndoPak 15-Line Mushaf</div><div class="center" style="padding:90px 10px"><div class="metric">ق</div><p class="small" style="margin-top:10px">Loading verified Quran page…</p></div></div>`;
+  if(fullReader.error || !fullReader.data){
+    return `<div class="quran-shell"><div class="mushaf-header">Offline / provider fallback</div>${quranService.getPage(582).map(a=>`<div class="ayah" translate="no">${a.words.map(w=>quranWord(w,a.key)).join(' ')} <span class="ayah-num">﴿${a.number}﴾</span></div>`).join('')}</div>`;
+  }
+  return `<div class="quran-shell indopak-page" translate="no"><div class="mushaf-header">IndoPak 15-Line Mushaf · Page ${fullReader.page}</div>${fullReader.data.lines.map(line=>`<div class="mushaf-line" data-line="${line.number}">${line.words.map(w=>`<span class="word ${selectedWord===w.id?'selected':''}" data-word="${w.id}" data-ayah="${w.verseKey}" data-audio="${w.audioUrl||''}">${w.text}</span>`).join(' ')}</div>`).join('')}</div>`;
+}
 function quran(){
-  return shell(`${top('Quran Reader',true)}<div class="page"><div class="badge-row"><span class="pill">Juz 30</span><span class="pill">Page 582</span><span class="pill">15-Line mode</span></div><div class="quran-shell" style="margin-top:10px"><div class="mushaf-header">سُورَةُ النَّبَإ · An-Naba</div>${quranService.getPage(582).map(a=>`<div class="ayah">${a.words.map(w=>quranWord(w,a.key)).join(' ')} <span class="ayah-num">﴿${a.number}﴾</span></div>`).join('')}</div><div class="reader-tools"><button class="secondary" id="playAyah">▶ Ayah</button><button class="secondary" id="playWord">🔊 Word</button></div><div class="card"><div class="label">SELECTED WORD</div><div class="value" id="selectedLabel">Tap any Quran word</div><p class="small" style="margin-top:5px">Each word has a stable ID and can be highlighted independently.</p></div><p class="source-note">Prototype sample Arabic: verified Quran content for 78:11–15. Audio: recorded Mishary Alafasy ayah recitation via EveryAyah. The production Quran repository should import and checksum a complete licensed IndoPak 15-line dataset.</p></div>`);
+  const providerNote=fullReader.error
+    ? `<div class="card mistake-card" style="margin-top:10px"><strong>Full Quran provider not connected yet</strong><p class="small">${fullReader.error}</p><p class="small" style="margin-top:6px">The verified An-Naba sample remains available as a safe fallback.</p></div>`
+    : '';
+  return shell(`${top('Quran Reader',true)}<div class="page"><div class="reader-nav"><button class="ghost" id="prevPage">←</button><div class="page-jump"><span class="label">PAGE</span><input id="pageJump" type="number" min="1" max="610" value="${fullReader.page}" inputmode="numeric"></div><button class="ghost" id="nextPage">→</button></div><div class="badge-row" style="margin-top:9px"><span class="pill">610 pages</span><span class="pill">15 lines</span><span class="pill">IndoPak Mushaf #6</span></div><div class="juz-jump"><label class="label" for="juzJump">Jump to Juz</label><select id="juzJump">${Array.from({length:30},(_,i)=>`<option value="${i+1}">Juz ${i+1}</option>`).join('')}</select></div>${fullReaderMarkup()}${providerNote}<div class="reader-tools"><button class="secondary" id="playAyah">▶ Ayah</button><button class="secondary" id="playWord">🔊 Word</button></div><div class="card"><div class="label">SELECTED WORD</div><div class="value" id="selectedLabel">Tap any Quran word</div><p class="small" style="margin-top:5px">Word position and line placement come from the Quran content layer, not AI generation.</p></div><p class="source-note">Full mode uses Quran Foundation Content APIs with Mushaf 6 (IndoPak 15-line, 610 pages). Secrets stay server-side. Quran text containers are marked notranslate.</p></div>`);
 }
 function classScreen(){
   const ctx=learningEngine.buildSessionContext(state);
@@ -62,17 +74,59 @@ function complete(){
   const l=state.lastSession;
   return shell(`<div class="topbar"><div class="brand"><div class="logo">ق</div><strong>Quran Ustadh AI</strong></div><span class="pill">Saved</span></div><div class="page"><div class="card complete center"><div style="font-size:46px">✓</div><h1>Class Complete</h1><p class="urdu" style="text-align:center;margin-top:6px">ماشاء اللہ، آج کا سبق مکمل ہوگیا۔ اگلی کلاس میں پہلے آیت 12 دوبارہ سنیں گے۔</p></div><h2 class="section-title">Today</h2><div class="grid2"><div class="card"><div class="metric">${l.duration}m</div><div class="small">Duration</div></div><div class="card"><div class="metric">${l.corrected}</div><div class="small">Mistakes corrected</div></div><div class="card"><div class="value">5 ayahs</div><div class="small">Sabaq completed</div></div><div class="card"><div class="value">2 pages</div><div class="small">Revision reviewed</div></div></div><div class="card" style="margin-top:10px"><div class="label">NEXT CLASS</div><div class="value">${state.student.classTime}</div><p class="small">Revision first: Ayah 78:12</p></div><button class="primary" style="width:100%;margin-top:12px" data-route="home">Back to Home</button></div>`,false);
 }
-function render(){
+async function loadFullPage(page=fullReader.page){
+  fullReader.page=Math.max(1,Math.min(610,Number(page)||1));
+  fullReader.loading=true; fullReader.error=''; fullReader.data=null;
+  if(route==='quran') render(false);
+  try{
+    fullReader.data=await fullQuranService.getPage(fullReader.page);
+    fullReader.provider='quran-foundation';
+  }catch(err){
+    fullReader.error=err?.message || 'Full Quran data could not be loaded.';
+    fullReader.provider='fallback';
+  }finally{
+    fullReader.loading=false;
+    if(route==='quran') render(false);
+  }
+}
+async function openCurrentSabaqInReader(){
+  route='quran';
+  render(false);
+  try{
+    const hit=await fullQuranService.lookupVerse('78:11');
+    if(hit?.page) return loadFullPage(hit.page);
+  }catch{}
+  return loadFullPage(fullReader.page);
+}
+function render(autoLoad=true){
   const map={login,onboarding,home,quran,class:classScreen,progress,learn:()=>placeholder('Learn','Nazirah and Hifz engines are prepared for the next phase.'),profile:()=>placeholder('Profile','Student language, schedule, family and privacy controls will live here.'),complete};
   app.innerHTML=(map[route]||home)();
   bind();
+  if(autoLoad && route==='quran' && !fullReader.loading && !fullReader.data && !fullReader.error) loadFullPage(fullReader.page);
 }
 function play(url){
   const a=new Audio(url);
   a.play().catch(()=>alert('Audio playback needs internet access in this prototype.'));
 }
 function bind(){
-  document.querySelectorAll('[data-route]').forEach(b=>b.onclick=()=>{route=b.dataset.route;render();});
+  document.querySelectorAll('[data-route]').forEach(b=>b.onclick=()=>{
+    const target=b.dataset.route;
+    if(target==='quran') return openCurrentSabaqInReader();
+    route=target;render();
+  });
+  document.querySelector('#prevPage')?.addEventListener('click',()=>loadFullPage(fullReader.page-1));
+  document.querySelector('#nextPage')?.addEventListener('click',()=>loadFullPage(fullReader.page+1));
+  document.querySelector('#pageJump')?.addEventListener('change',e=>loadFullPage(e.target.value));
+  document.querySelector('#juzJump')?.addEventListener('change',async e=>{
+    try{
+      const pages=await fullQuranService.lookupJuz(e.target.value);
+      const first=Number(Object.keys(pages).sort((a,b)=>Number(a)-Number(b))[0]);
+      if(first) loadFullPage(first);
+    }catch(err){
+      fullReader.error=err?.message||'Could not load Juz.';
+      render(false);
+    }
+  });
   document.querySelector('#onboard')?.addEventListener('submit',e=>{
     e.preventDefault();
     const f=new FormData(e.currentTarget);
@@ -86,7 +140,11 @@ function bind(){
     if(l)l.textContent=`${w.textContent} · ${selectedWord}`;
   });
   document.querySelector('#playAyah')?.addEventListener('click',()=>play(quranService.getAyahAudio(selectedWord?selectedWord.split(':').slice(0,2).join(':'):'78:11')));
-  document.querySelector('#playWord')?.addEventListener('click',()=>{if(!selectedWord)return alert('Tap a Quran word first.');play(quranService.getWordAudio(selectedWord));});
+  document.querySelector('#playWord')?.addEventListener('click',()=>{
+    if(!selectedWord)return alert('Tap a Quran word first.');
+    const el=[...document.querySelectorAll('[data-word]')].find(x=>x.dataset.word===selectedWord);
+    play(el?.dataset.audio || quranService.getWordAudio(selectedWord));
+  });
   document.querySelector('#classAudio')?.addEventListener('click',()=>play(quranService.getAyahAudio('78:11')));
   document.querySelector('#micBtn')?.addEventListener('click',async()=>{
     micError='';
