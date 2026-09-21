@@ -21,6 +21,7 @@ jobs:
           node --check src/services/mock-recitation-service.js
           node --check src/services/recorder-service.js
           node --check src/services/supabase-service.js
+          node --check src/services/open-indopak-service.js
       - name: Required files
         run: |
           test -f index.html
