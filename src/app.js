@@ -4,7 +4,7 @@ import { learningEngine } from './services/learning-engine.js';
 import { mockRecitationService } from './services/mock-recitation-service.js';
 import { recorderService } from './services/recorder-service.js';
 import { supabaseService } from './services/supabase-service.js';
-import { fullQuranService } from './services/full-quran-service.js';
+import { openIndoPakService } from './services/open-indopak-service.js';
 
 let state = storageService.load();
 let route = state.onboarded ? 'home' : 'login';
@@ -44,13 +44,13 @@ function fullReaderMarkup(){
   if(fullReader.error || !fullReader.data){
     return `<div class="quran-shell"><div class="mushaf-header">Offline / provider fallback</div>${quranService.getPage(582).map(a=>`<div class="ayah" translate="no">${a.words.map(w=>quranWord(w,a.key)).join(' ')} <span class="ayah-num">﴿${a.number}﴾</span></div>`).join('')}</div>`;
   }
-  return `<div class="quran-shell indopak-page" translate="no"><div class="mushaf-header">IndoPak 15-Line Mushaf · Page ${fullReader.page}</div>${fullReader.data.lines.map(line=>`<div class="mushaf-line" data-line="${line.number}">${line.words.map(w=>`<span class="word ${selectedWord===w.id?'selected':''}" data-word="${w.id}" data-ayah="${w.verseKey}" data-audio="${w.audioUrl||''}">${w.text}</span>`).join(' ')}</div>`).join('')}</div>`;
+  return `<div class="quran-shell indopak-page" translate="no"><div class="mushaf-header">IndoPak 15-Line Mushaf · Page ${fullReader.page}</div>${fullReader.data.lines.map(line=>`<div class="mushaf-line" data-line="${line.number}">${line.words.map(w=>`<span class="word ${selectedWord===w.id?'selected':''}" data-word="${w.id}" data-ayah="" data-audio="">${w.text}</span>`).join(' ')}</div>`).join('')}</div>`;
 }
 function quran(){
   const providerNote=fullReader.error
     ? `<div class="card mistake-card" style="margin-top:10px"><strong>Full Quran provider not connected yet</strong><p class="small">${fullReader.error}</p><p class="small" style="margin-top:6px">The verified An-Naba sample remains available as a safe fallback.</p></div>`
     : '';
-  return shell(`${top('Quran Reader',true)}<div class="page"><div class="reader-nav"><button class="ghost" id="prevPage">←</button><div class="page-jump"><span class="label">PAGE</span><input id="pageJump" type="number" min="1" max="610" value="${fullReader.page}" inputmode="numeric"></div><button class="ghost" id="nextPage">→</button></div><div class="badge-row" style="margin-top:9px"><span class="pill">610 pages</span><span class="pill">15 lines</span><span class="pill">IndoPak Mushaf #6</span></div><div class="juz-jump"><label class="label" for="juzJump">Jump to Juz</label><select id="juzJump">${Array.from({length:30},(_,i)=>`<option value="${i+1}">Juz ${i+1}</option>`).join('')}</select></div>${fullReaderMarkup()}${providerNote}<div class="reader-tools"><button class="secondary" id="playAyah">▶ Ayah</button><button class="secondary" id="playWord">🔊 Word</button></div><div class="card"><div class="label">SELECTED WORD</div><div class="value" id="selectedLabel">Tap any Quran word</div><p class="small" style="margin-top:5px">Word position and line placement come from the Quran content layer, not AI generation.</p></div><p class="source-note">Full mode uses Quran Foundation Content APIs with Mushaf 6 (IndoPak 15-line, 610 pages). Secrets stay server-side. Quran text containers are marked notranslate.</p></div>`);
+  return shell(`${top('Quran Reader',true)}<div class="page"><div class="reader-nav"><button class="ghost" id="prevPage">←</button><div class="page-jump"><span class="label">PAGE</span><input id="pageJump" type="number" min="1" max="610" value="${fullReader.page}" inputmode="numeric"></div><button class="ghost" id="nextPage">→</button></div><div class="badge-row" style="margin-top:9px"><span class="pill">610 pages</span><span class="pill">15 lines</span><span class="pill">IndoPak Mushaf #6</span></div><div class="juz-jump"><label class="label" for="surahJump">Jump to Surah</label><select id="surahJump"><option value="">Loading Surah index…</option></select></div>${fullReaderMarkup()}${providerNote}<div class="reader-tools"><button class="secondary" id="playAyah">▶ Ayah</button><button class="secondary" id="playWord">🔊 Word</button></div><div class="card"><div class="label">SELECTED WORD</div><div class="value" id="selectedLabel">Tap any Quran word</div><p class="small" style="margin-top:5px">Word position and line placement come from the Quran content layer, not AI generation.</p></div><p class="source-note">Full mode uses DigitalKhatt’s MIT-licensed IndoPak 15-line dataset (610 pages). No API key, login, or special permission is required. Quran text containers are marked notranslate.</p></div>`);
 }
 function classScreen(){
   const ctx=learningEngine.buildSessionContext(state);
@@ -79,8 +79,8 @@ async function loadFullPage(page=fullReader.page){
   fullReader.loading=true; fullReader.error=''; fullReader.data=null;
   if(route==='quran') render(false);
   try{
-    fullReader.data=await fullQuranService.getPage(fullReader.page);
-    fullReader.provider='quran-foundation';
+    fullReader.data=await openIndoPakService.getPage(fullReader.page);
+    fullReader.provider='digitalkhatt-open-source';
   }catch(err){
     fullReader.error=err?.message || 'Full Quran data could not be loaded.';
     fullReader.provider='fallback';
@@ -93,8 +93,8 @@ async function openCurrentSabaqInReader(){
   route='quran';
   render(false);
   try{
-    const hit=await fullQuranService.lookupVerse('78:11');
-    if(hit?.page) return loadFullPage(hit.page);
+    const page=await openIndoPakService.getSurahPage(78);
+    if(page) return loadFullPage(page);
   }catch{}
   return loadFullPage(fullReader.page);
 }
@@ -117,16 +117,17 @@ function bind(){
   document.querySelector('#prevPage')?.addEventListener('click',()=>loadFullPage(fullReader.page-1));
   document.querySelector('#nextPage')?.addEventListener('click',()=>loadFullPage(fullReader.page+1));
   document.querySelector('#pageJump')?.addEventListener('change',e=>loadFullPage(e.target.value));
-  document.querySelector('#juzJump')?.addEventListener('change',async e=>{
-    try{
-      const pages=await fullQuranService.lookupJuz(e.target.value);
-      const first=Number(Object.keys(pages).sort((a,b)=>Number(a)-Number(b))[0]);
-      if(first) loadFullPage(first);
-    }catch(err){
-      fullReader.error=err?.message||'Could not load Juz.';
-      render(false);
-    }
-  });
+  const surahJump=document.querySelector('#surahJump');
+  if(surahJump){
+    openIndoPakService.getSurahs().then(items=>{
+      surahJump.innerHTML='<option value="">Select Surah</option>'+items.map((x,i)=>`<option value="${i+1}">${i+1}. ${x.title.replace(/^سُورَةُ\s*/, '')}</option>`).join('');
+    }).catch(()=>{surahJump.innerHTML='<option value="">Surah index unavailable</option>';});
+    surahJump.addEventListener('change',async e=>{
+      if(!e.target.value) return;
+      const page=await openIndoPakService.getSurahPage(e.target.value);
+      loadFullPage(page);
+    });
+  }
   document.querySelector('#onboard')?.addEventListener('submit',e=>{
     e.preventDefault();
     const f=new FormData(e.currentTarget);
